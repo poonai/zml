@@ -743,7 +743,7 @@ pub const Tensor = struct {
 
             // Check the distribution obtained with the gumbel trick matches the target distribution.
             const actual_dist = try stats.actual_dist.getValue([4]f32);
-            scoped_log.debug("tgt_dist: {d}, actual_dist: {d}", .{ tgt_dist, actual_dist });
+            scoped_log.debug("tgt_dist: {any}, actual_dist: {any}", .{ tgt_dist, actual_dist });
             for (tgt_dist, actual_dist) |tgt, actual| {
                 // We normalize tgt_dist to make it a well formed distribution.
                 // We didn't do it before calling gumbel, because the gumbel trick
@@ -3179,6 +3179,28 @@ pub const Tensor = struct {
         );
     }
 
+    pub const QuntizedTensor = struct { block: Tensor, scale: Tensor };
+
+    pub fn quantize(self: Tensor) QuntizedTensor {
+        const ctx = self.getContext();
+        const mlir_ctx = ctx.mlirCtx();
+
+        const op = dialect.stablehlo.custom_call(
+            mlir_ctx,
+            &.{self.value()},
+            .{ .call_target_name = "__op$quantize", .backend_config = null, .has_side_effect = true, .api_version = .original },
+            &.{
+                mlirx.tensorType(mlir_ctx, Shape.init(self._shape.dims(), DataType.f8e4m3fn)),
+                mlirx.tensorType(mlir_ctx, Shape.init(self._shape.dims(), DataType.f8e4m3fn)),
+            },
+            mlir_ctx.location(@src()),
+        );
+        return .{
+            .block = _result(Shape.init(self._shape.dims(), DataType.f8e4m3fn), op.result(0)),
+            .scale = _result(Shape.init(self._shape.dims(), DataType.f8e4m3fn), op.result(1)),
+        };
+    }
+
     /// Chunk a given tensor into exactly n parts of equal shape.
     /// `self.dim(axis_)` must be divisible by n_chunks.
     pub fn chunkExact(self: Tensor, axis_: anytype, n_chunks: comptime_int) [n_chunks]Tensor {
@@ -4039,6 +4061,43 @@ test "Tensor.maxPool1d" {
         },
         result.values.getValue([2][2][2]f32),
     );
+}
+
+test "Tesor.Learning" {
+    const zml = @import("zml.zig");
+    const platform = zml.testing.env();
+
+    const Layer = struct {
+        pub fn _fwd(x: Tensor, y: Tensor) Tensor.QuntizedTensor {
+            _ = y; // autofix
+            return x.quantize();
+        }
+    };
+
+    // Short lived allocations
+    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    // defer _ = gpa.deinit();
+    // const allocator = gpa.allocator();
+    // _ = allocator; // autofix
+
+    // var arena_state = std.heap.ArenaAllocator.init(allocator);
+    // defer arena_state.deinit();
+    // const arena = arena_state.allocator();
+    // _ = arena; // autofix
+
+    // var buffers: zml.aio.BufferStore.Buffers = .{};
+    // try buffers.put(std.testing.allocator, "weight", zml.HostBuffer.fromArray(&[2]f32{ 1, 1 }));
+
+    // const bs: zml.aio.BufferStore = zml.aio.BufferStore.init(std.testing.allocator);
+    // const layer = try zml.aio.populateModel(Layer, allocator, bs);
+    const input = [2]f32{ 1, 1 };
+
+    const x = try zml.Buffer.fromSlice(platform, .{2}, &input);
+    const y = try zml.Buffer.fromSlice(platform, .{2}, &input);
+
+    const result = try zml.testing.compileAndCall(platform, Layer._fwd, .{ x, y });
+    _ = result; // autofix
+    // try zml.testing.expectEqualShapes(Shape.init(.{2}, .f32), result.shape());
 }
 
 test "Tensor.maxPool2d" {

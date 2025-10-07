@@ -7,7 +7,7 @@ const async = @import("async");
 
 // note: std_options.log_level does not respect testing.log_level
 // ref: https://github.com/ziglang/zig/issues/5738
-const log_level: std.log.Level = .warn;
+const log_level: std.log.Level = .debug;
 
 pub const std_options: std.Options = .{
     .log_level = log_level,
@@ -43,6 +43,7 @@ pub fn asyncMain() !void {
     } else blk: {
         break :blk "";
     };
+    std.log.info("hello", .{});
 
     var leaks: usize = 0;
 
