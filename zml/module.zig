@@ -175,6 +175,9 @@ pub const CompilationContext = struct {
         var module_dir: ?[]const u8 = null;
         var pjrt_location: ?[:0]const u8 = null;
 
+        log.debug("******** ZML generated MLIR ********", .{});
+        log.debug("{f}", .{module.op().mlirFormatter(.{})});
+
         if (self._platform.compilation_options.xla_dump_to) |xla_dump_to| {
             const sep = std.fs.path.sep_str;
             const module_dir_name = try std.fmt.allocPrint(arena, "{s}{s}{s}{s}{s}_{x}", .{ xla_dump_to, sep, @tagName(self._platform.target), sep, self._name, module_hash });
@@ -226,9 +229,6 @@ pub const CompilationContext = struct {
             const stats = try exe.getCompiledMemoryStats(self._platform.pjrt_api);
             log.debug("Compiled {s}: {any}", .{ self._name, stats });
         }
-
-        log.debug("******** ZML generated MLIR ********", .{});
-        log.debug("{f}", .{module.op().mlirFormatter(.{})});
 
         if (timer) |*t| {
             const time_ms = @divFloor(t.lap(), std.time.ns_per_ms);

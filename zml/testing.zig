@@ -17,7 +17,7 @@ pub fn env() zml.Platform {
         var ctx = zml.Context.init() catch unreachable;
         _platform = ctx.autoPlatform(.{}).withCompilationOptions(.{
             .xla_dump_to = "/tmp/zml/tests/",
-            .sharding_enabled = true,
+            .sharding_enabled = false,
         });
     }
 

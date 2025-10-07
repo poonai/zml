@@ -182,7 +182,7 @@ pub const Api = struct {
         return null;
     }
 
-    fn getPluginAttributes(api: *const Api) []const NamedValue {
+    pub fn getPluginAttributes(api: *const Api) []const NamedValue {
         const ret = api.call(.PJRT_Plugin_Attributes, .{
             .extension_start = null,
         }) catch unreachable;
