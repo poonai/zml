@@ -3179,7 +3179,24 @@ pub const Tensor = struct {
         );
     }
 
-    pub const QuntizedTensor = struct { block: Tensor, scale: Tensor };
+    pub const QuntizedTensor = struct {
+        block: Tensor,
+        scale: Tensor,
+
+        pub fn scale_dot_product(self: @This(), other: @This()) Tensor {
+            const ctx = self.block.getContext();
+            const mlir_ctx = ctx.mlirCtx();
+            const tensor_type = mlirx.tensorType(mlir_ctx, Shape.init(.{ 16, 32 }, DataType.f32));
+            const op = dialect.stablehlo.custom_call(
+                mlir_ctx,
+                &.{ self.block.value(), other.block.value(), self.scale.value(), other.scale.value() },
+                .{ .call_target_name = "__op$block_scaled_dot", .backend_config = null, .has_side_effect = true, .api_version = .original },
+                &.{tensor_type},
+                mlir_ctx.location(@src()),
+            );
+            return _result(Shape.init(.{ 16, 32 }, DataType.f32), op.result(0));
+        }
+    };
 
     pub fn quantize(self: Tensor) QuntizedTensor {
         const ctx = self.getContext();
@@ -4068,9 +4085,15 @@ test "Tesor.Learning" {
     const platform = zml.testing.env();
 
     const Layer = struct {
-        pub fn _fwd(x: Tensor, y: Tensor) Tensor.QuntizedTensor {
-            _ = y; // autofix
-            return x.quantize();
+        pub fn _fwd(x: Tensor, y: Tensor, x_scale: Tensor, y_scale: Tensor) Tensor {
+            const x_xl = x.convert(DataType.f8e4m3fn);
+            const x_scale_xl = x_scale.convert(DataType.f8e8m0);
+            const mx_tensor = Tensor.QuntizedTensor{ .block = x_xl, .scale = x_scale_xl };
+
+            const y_xl = y.convert(DataType.f8e4m3fn);
+            const y_scale_xl = y_scale.convert(DataType.f8e8m0);
+            const my_tensor = Tensor.QuntizedTensor{ .block = y_xl, .scale = y_scale_xl };
+            return mx_tensor.scale_dot_product(my_tensor);
         }
     };
 
@@ -4090,12 +4113,32 @@ test "Tesor.Learning" {
 
     // const bs: zml.aio.BufferStore = zml.aio.BufferStore.init(std.testing.allocator);
     // const layer = try zml.aio.populateModel(Layer, allocator, bs);
-    const input = [2]f32{ 1, 1 };
+    var x_src: [2048]f32 = undefined;
+    for (&x_src) |*x| {
+        x.* = @floatFromInt(0);
+    }
 
-    const x = try zml.Buffer.fromSlice(platform, .{2}, &input);
-    const y = try zml.Buffer.fromSlice(platform, .{2}, &input);
+    var y_src: [4096]f32 = undefined;
+    for (&y_src) |*x| {
+        x.* = @floatFromInt(1);
+    }
 
-    const result = try zml.testing.compileAndCall(platform, Layer._fwd, .{ x, y });
+    var x_src_scale: [64]f32 = undefined;
+    for (&x_src_scale) |*x| {
+        x.* = @floatFromInt(2);
+    }
+
+    var y_src_scale: [128]f32 = undefined;
+    for (&y_src_scale) |*x| {
+        x.* = @floatFromInt(3);
+    }
+
+    const x = try zml.Buffer.fromSlice(platform, .{ 16, 128 }, &x_src);
+    const y = try zml.Buffer.fromSlice(platform, .{ 32, 128 }, &y_src);
+    const x_scale = try zml.Buffer.fromSlice(platform, .{ 16, 4 }, &x_src_scale);
+    const y_scale = try zml.Buffer.fromSlice(platform, .{ 32, 4 }, &y_src_scale);
+
+    const result = try zml.testing.compileAndCall(platform, Layer._fwd, .{ x, y, x_scale, y_scale });
     _ = result; // autofix
     // try zml.testing.expectEqualShapes(Shape.init(.{2}, .f32), result.shape());
 }

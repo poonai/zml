@@ -296,6 +296,14 @@ pub fn select(ctx: mlir.Context, condition: mlir.Value, then: mlir.Value, else_:
     });
 }
 
+pub fn block_scaled_dot(ctx: mlir.Context, lhs: mlir.Value, rhs: mlir.Value, lhs_scale: mlir.Value, rhs_scale: mlir.Value, result_type: mlir.Type, location: mlir.Location) mlir.Operation {
+    return mlir.Operation.make(ctx, "stablehlo.block-scaled-dot", .{
+        .operands = &.{ lhs, rhs, lhs_scale, rhs_scale },
+        .results = &.{result_type},
+        .location = location,
+    });
+}
+
 pub fn gather(
     ctx: mlir.Context,
     value: mlir.Value,

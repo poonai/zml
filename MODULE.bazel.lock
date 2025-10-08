@@ -569,7 +569,7 @@
     },
     "@@pybind11_bazel+//:internal_configure.bzl%internal_configure_extension": {
       "general": {
-        "bzlTransitiveDigest": "YX3gHhSTjjghUwEDKUr1WO9E6h/uiehMZuE9vZup5+g=",
+        "bzlTransitiveDigest": "4LQnG0jlp2K/h7rzBwVQibNoWU2qyHZD9SMIWSqnYzU=",
         "usagesDigest": "D1r3lfzMuUBFxgG8V6o0bQTLMk3GkaGOaPzw53wrwyw=",
         "recordedFileInputs": {
           "@@pybind11_bazel+//MODULE.bazel": "45d98c531db5f8430f847b195357dca36665d9c926cbbee77a85105fc6865d27"
@@ -599,7 +599,7 @@
     },
     "@@rules_apple+//apple:apple.bzl%provisioning_profile_repository_extension": {
       "general": {
-        "bzlTransitiveDigest": "BRNIrN/yKvsUnyouziBgSAp7x+TIcFZhks4bYDTh9iA=",
+        "bzlTransitiveDigest": "baw3KIEP3xCSFMtanhu2DyGTW114PlRFqbomJ4i8P3I=",
         "usagesDigest": "vsJl8Rw5NL+5Ag2wdUDoTeRF/5klkXO8545Iy7U1Q08=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
@@ -681,7 +681,7 @@
     },
     "@@rules_apple+//apple:extensions.bzl%non_module_deps": {
       "general": {
-        "bzlTransitiveDigest": "MABz1Esd3zxY4bS7aJoMhMKwBUdwC27e+3XkbPb3QcQ=",
+        "bzlTransitiveDigest": "L9STSwRmLZJ9IR9AsiguILZrlkQVl9u59ZYnNDDPnCQ=",
         "usagesDigest": "M3VqFpeTCo4qmrNKGZw0dxBHvTYDrfV3cscGzlSAhQ4=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
@@ -2465,7 +2465,7 @@
     },
     "@@rules_rust+//crate_universe/private:internal_extensions.bzl%cu_nr": {
       "general": {
-        "bzlTransitiveDigest": "A72J7FdqiIlmYkdw1rlcP/8uguFzwKWCs3Q3Mn4fVpQ=",
+        "bzlTransitiveDigest": "lhmyiNqG64bGbuKdq1rymtoo/ytmG6nH4z8Ildc8AqY=",
         "usagesDigest": "3vKI8uvqTpJCf+t8aU6UD5d5cUWinWhtMjKkRpCLR+A=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
@@ -2608,7 +2608,7 @@
     },
     "@@rules_swift+//swift:extensions.bzl%non_module_deps": {
       "general": {
-        "bzlTransitiveDigest": "zLT+pQh+AVbyxn970hzqSTfnjUqwnk0PUnP/REyVSMY=",
+        "bzlTransitiveDigest": "MgM2JU/7HvftC3sJQv6LYERdoW43V6VuyhxA5eVpvxE=",
         "usagesDigest": "mhACFnrdMv9Wi0Mt67bxocJqviRkDSV+Ee5Mqdj5akA=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
