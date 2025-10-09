@@ -25,6 +25,8 @@ const dialect = struct {
 
 const scoped_log = std.log.scoped(.@"zml/tensor");
 
+const block_config: i32 = 32;
+
 test {
     std.testing.refAllDecls(Tensor);
 }
@@ -3186,36 +3188,81 @@ pub const Tensor = struct {
         pub fn scale_dot_product(self: @This(), other: @This()) Tensor {
             const ctx = self.block.getContext();
             const mlir_ctx = ctx.mlirCtx();
-            const tensor_type = mlirx.tensorType(mlir_ctx, Shape.init(.{ 16, 32 }, DataType.f32));
+            const tensor_shape = Shape.init(self.block.shape(), .f32);
+            const tensor_type = mlirx.tensorType(mlir_ctx, tensor_shape);
+
+            const backend_config = mlir.Attribute.dict(mlir_ctx, &.{.{ "dequantize_type", .string(mlir_ctx, "F32") }});
             const op = dialect.stablehlo.custom_call(
                 mlir_ctx,
                 &.{ self.block.value(), other.block.value(), self.scale.value(), other.scale.value() },
-                .{ .call_target_name = "__op$block_scaled_dot", .backend_config = null, .has_side_effect = true, .api_version = .original },
+                .{ .call_target_name = "__op$block_scaled_dot", .backend_config = backend_config, .has_side_effect = true, .api_version = .typed_ffi },
                 &.{tensor_type},
                 mlir_ctx.location(@src()),
             );
-            return _result(Shape.init(.{ 16, 32 }, DataType.f32), op.result(0));
+            return _result(tensor_shape, op.result(0));
+        }
+
+        pub fn dequantize(self: @This(), _type: DataType) Tensor {
+            // Step 1: Convert both tensors
+            const block = self.block.convert(_type);
+            const block_scale = self.scale.convert(_type);
+
+            // Step 2: Broadcast and reshape scale tensor.
+            const scale_broadcast = block_scale.broad(block_scale.shape().appendDim(block_config, null));
+            const scale_reshaped = scale_broadcast.reshape(block.shape());
+
+            const result = block.mul(scale_reshaped);
+            return result;
         }
     };
 
     pub fn quantize(self: Tensor) QuntizedTensor {
-        const ctx = self.getContext();
-        const mlir_ctx = ctx.mlirCtx();
+        // derived from https://github.com/openxla/xla/discussions/18085
+        // Step 1: Reshape input into blocks.
+        var block_shape = self.shape();
+        block_shape = block_shape.setDim(-1, @divExact(self.dim(-1), block_config));
+        block_shape = block_shape.appendDim(block_config, null);
+        var x_block = self.reshape(block_shape);
 
-        const op = dialect.stablehlo.custom_call(
-            mlir_ctx,
-            &.{self.value()},
-            .{ .call_target_name = "__op$quantize", .backend_config = null, .has_side_effect = true, .api_version = .original },
-            &.{
-                mlirx.tensorType(mlir_ctx, Shape.init(self._shape.dims(), DataType.f8e4m3fn)),
-                mlirx.tensorType(mlir_ctx, Shape.init(self._shape.dims(), DataType.f8e4m3fn)),
+        // Step 2: Find absolute maximum (amax) for each block.
+        const amax = x_block.max(x_block.axis(-1));
+
+        // Step 3: Calculate largest power-of-two less than or equal to amax.
+        // This can be done by zeroing out the mantissa bits.
+        const max_val: struct {
+            _type: DataType,
+            val: Data,
+        } = switch (self.dtype().sizeOf()) {
+            8 => .{ ._type = DataType.i64, .val = Data.init(DataType.i64, 0x7FF0000000000000) },
+            4 => .{ ._type = DataType.i32, .val = Data.init(DataType.i32, 0x7F800000) },
+            else => {
+                std.debug.print("data type {} size {}", .{ self.dtype(), self.dtype().sizeOf() });
+                // hmm test and see.
+                unreachable;
             },
-            mlir_ctx.location(@src()),
-        );
-        return .{
-            .block = _result(Shape.init(self._shape.dims(), DataType.f8e4m3fn), op.result(0)),
-            .scale = _result(Shape.init(self._shape.dims(), DataType.f8e4m3fn), op.result(1)),
         };
+        const amax_unsigned = amax.bitCast(max_val._type);
+        const mask_broadcast = Tensor.constant(amax_unsigned.shape(), max_val.val);
+        const exponent_bits = amax_unsigned.logical(LogicalOp.AND, mask_broadcast);
+        const amax_rz = exponent_bits.bitCast(self.dtype());
+
+        // Step 4: Divide by the largest power-of-two representable by the type.
+        // This can also be done by multiplying by the reciprocal.
+        const emax_broadcast = Tensor.constant(amax.shape(), DataType.constant(self.dtype(), 256));
+        var t_scale = amax_rz.div(emax_broadcast);
+
+        // Step 5: Divide the block elements by the calculated scale.
+        const scale_broadcast = t_scale.broad(block_shape);
+        const x_block_scaled = x_block.div(scale_broadcast);
+
+        // Step 6: Reshape and convert to the quantization type.
+        const x_scaled = x_block_scaled.reshape(self.shape());
+        const block = x_scaled.convert(DataType.f4e2m1);
+
+        // Step 7: Convert scale to the scaling type.
+        // This can also be done by bit shift, as the mantissa bits are zero.
+        const block_scale = t_scale.convert(DataType.f8e8m0);
+        return .{ .block = block, .scale = block_scale };
     }
 
     /// Chunk a given tensor into exactly n parts of equal shape.
@@ -4080,19 +4127,38 @@ test "Tensor.maxPool1d" {
     );
 }
 
+test "Tensor.Quantize" {
+    const zml = @import("zml.zig");
+    const platform = zml.testing.env();
+
+    const Layer = struct {
+        pub fn _fwd(x: Tensor) Tensor.QuntizedTensor {
+            return x.quantize();
+        }
+    };
+
+    var x_src: [128]f32 = undefined;
+    for (&x_src, 0..) |*x, i| {
+        x.* = @floatFromInt(i);
+    }
+
+    const x = try zml.Buffer.fromSlice(platform, .{128}, &x_src);
+
+    const result = try zml.testing.compileAndCall(platform, Layer._fwd, .{x});
+    try zml.testing.expectEqualShapes(Shape.init(.{128}, .f8e4m3fn), result.block.shape());
+}
+
 test "Tesor.Learning" {
     const zml = @import("zml.zig");
     const platform = zml.testing.env();
 
     const Layer = struct {
-        pub fn _fwd(x: Tensor, y: Tensor, x_scale: Tensor, y_scale: Tensor) Tensor {
-            const x_xl = x.convert(DataType.f8e4m3fn);
-            const x_scale_xl = x_scale.convert(DataType.f8e8m0);
-            const mx_tensor = Tensor.QuntizedTensor{ .block = x_xl, .scale = x_scale_xl };
-
-            const y_xl = y.convert(DataType.f8e4m3fn);
-            const y_scale_xl = y_scale.convert(DataType.f8e8m0);
-            const my_tensor = Tensor.QuntizedTensor{ .block = y_xl, .scale = y_scale_xl };
+        pub fn _fwd(
+            x: Tensor,
+            y: Tensor,
+        ) Tensor {
+            const mx_tensor = x.quantize();
+            const my_tensor = y.quantize();
             return mx_tensor.scale_dot_product(my_tensor);
         }
     };
@@ -4115,32 +4181,19 @@ test "Tesor.Learning" {
     // const layer = try zml.aio.populateModel(Layer, allocator, bs);
     var x_src: [2048]f32 = undefined;
     for (&x_src) |*x| {
-        x.* = @floatFromInt(0);
+        x.* = @floatFromInt(1);
     }
 
-    var y_src: [4096]f32 = undefined;
+    var y_src: [2048]f32 = undefined;
     for (&y_src) |*x| {
         x.* = @floatFromInt(1);
     }
 
-    var x_src_scale: [64]f32 = undefined;
-    for (&x_src_scale) |*x| {
-        x.* = @floatFromInt(2);
-    }
+    const x = try zml.Buffer.fromSlice(platform, .{2048}, &x_src);
+    const y = try zml.Buffer.fromSlice(platform, .{2048}, &y_src);
 
-    var y_src_scale: [128]f32 = undefined;
-    for (&y_src_scale) |*x| {
-        x.* = @floatFromInt(3);
-    }
-
-    const x = try zml.Buffer.fromSlice(platform, .{ 16, 128 }, &x_src);
-    const y = try zml.Buffer.fromSlice(platform, .{ 32, 128 }, &y_src);
-    const x_scale = try zml.Buffer.fromSlice(platform, .{ 16, 4 }, &x_src_scale);
-    const y_scale = try zml.Buffer.fromSlice(platform, .{ 32, 4 }, &y_src_scale);
-
-    const result = try zml.testing.compileAndCall(platform, Layer._fwd, .{ x, y, x_scale, y_scale });
-    _ = result; // autofix
-    // try zml.testing.expectEqualShapes(Shape.init(.{2}, .f32), result.shape());
+    const result = try zml.testing.compileAndCall(platform, Layer._fwd, .{ x, y });
+    try zml.testing.expectEqualShapes(Shape.init(.{2048}, .f8e4m3fn), result.block.shape());
 }
 
 test "Tensor.maxPool2d" {

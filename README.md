@@ -264,6 +264,3 @@ ZML is licensed under the [Apache 2.0 license](./LICENSE).
 <a href="https://github.com/zml/zml/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=zml/zml" />
 </a>
-
-// https://github.com/openxla/xla/pull/22141/files
-// https://github.com/jax-ml/jax/pull/26345/files

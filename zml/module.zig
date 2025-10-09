@@ -175,8 +175,8 @@ pub const CompilationContext = struct {
         var module_dir: ?[]const u8 = null;
         var pjrt_location: ?[:0]const u8 = null;
 
-        log.debug("******** ZML generated MLIR ********", .{});
-        log.debug("{f}", .{module.op().mlirFormatter(.{})});
+        log.info("******** ZML generated MLIR ********", .{});
+        log.info("{f}", .{module.op().mlirFormatter(.{})});
 
         if (self._platform.compilation_options.xla_dump_to) |xla_dump_to| {
             const sep = std.fs.path.sep_str;

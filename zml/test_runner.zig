@@ -23,6 +23,7 @@ pub fn main() anyerror!void {
 }
 
 pub fn asyncMain() !void {
+    std.testing.log_level = .debug;
     const test_fn_list: []const std.builtin.TestFn = builtin.test_functions;
     var ok_count: usize = 0;
     var skip_count: usize = 0;
