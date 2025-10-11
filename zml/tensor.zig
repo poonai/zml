@@ -3188,13 +3188,17 @@ pub const Tensor = struct {
         pub fn scale_dot_product(self: @This(), other: @This()) Tensor {
             const ctx = self.block.getContext();
             const mlir_ctx = ctx.mlirCtx();
-            const tensor_shape = Shape.init(self.block.shape(), .f32);
+            const tensor_shape = Shape.init(self.block.shape(), .f16);
             const tensor_type = mlirx.tensorType(mlir_ctx, tensor_shape);
 
-            const backend_config = mlir.Attribute.dict(mlir_ctx, &.{.{ "dequantize_type", .string(mlir_ctx, "F32") }});
+            const backend_config = mlir.Attribute.dict(mlir_ctx, &.{
+                .{ "dequantize_type", .string(mlir_ctx, "F16") },
+                .{ "lhs_batch_dimensions", .array(mlir_ctx, &[1]mlir.Attribute{.int(mlir_ctx, mlir.IntegerTypes.i32, 0)}) },
+                .{ "rhs_batch_dimensions", .array(mlir_ctx, &[1]mlir.Attribute{.int(mlir_ctx, mlir.IntegerTypes.i32, 0)}) },
+            });
             const op = dialect.stablehlo.custom_call(
                 mlir_ctx,
-                &.{ self.block.value(), other.block.value(), self.scale.value(), other.scale.value() },
+                &.{ self.block.value(), other.block.value(), self.scale.flatten().value(), other.scale.flatten().value() },
                 .{ .call_target_name = "__op$block_scaled_dot", .backend_config = backend_config, .has_side_effect = true, .api_version = .typed_ffi },
                 &.{tensor_type},
                 mlir_ctx.location(@src()),
@@ -4193,7 +4197,7 @@ test "Tesor.Learning" {
     const y = try zml.Buffer.fromSlice(platform, .{2048}, &y_src);
 
     const result = try zml.testing.compileAndCall(platform, Layer._fwd, .{ x, y });
-    try zml.testing.expectEqualShapes(Shape.init(.{2048}, .f8e4m3fn), result.block.shape());
+    try zml.testing.expectEqualShapes(Shape.init(.{2048}, .f32), result.shape());
 }
 
 test "Tensor.maxPool2d" {
