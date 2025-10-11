@@ -3196,9 +3196,10 @@ pub const Tensor = struct {
                 .{ "lhs_batch_dimensions", .array(mlir_ctx, &[1]mlir.Attribute{.int(mlir_ctx, mlir.IntegerTypes.i32, 0)}) },
                 .{ "rhs_batch_dimensions", .array(mlir_ctx, &[1]mlir.Attribute{.int(mlir_ctx, mlir.IntegerTypes.i32, 0)}) },
             });
+            std.debug.print("lhs shape {any} rhs shape {any} lhs scale shape {any} rhs scale shape {any}", .{ self.block.shape(), other.block.shape(), self.scale.shape(), other.scale.shape() });
             const op = dialect.stablehlo.custom_call(
                 mlir_ctx,
-                &.{ self.block.value(), other.block.value(), self.scale.flatten().value(), other.scale.flatten().value() },
+                &.{ self.block.value(), other.block.value(), self.scale.value(), other.scale.value() },
                 .{ .call_target_name = "__op$block_scaled_dot", .backend_config = backend_config, .has_side_effect = true, .api_version = .typed_ffi },
                 &.{tensor_type},
                 mlir_ctx.location(@src()),
@@ -3261,11 +3262,11 @@ pub const Tensor = struct {
 
         // Step 6: Reshape and convert to the quantization type.
         const x_scaled = x_block_scaled.reshape(self.shape());
-        const block = x_scaled.convert(DataType.f4e2m1);
+        const block = x_scaled.convert(DataType.f8e4m3fn);
 
         // Step 7: Convert scale to the scaling type.
         // This can also be done by bit shift, as the mantissa bits are zero.
-        const block_scale = t_scale.convert(DataType.f8e8m0);
+        const block_scale = t_scale.convert(DataType.f8e8m0).reshape(t_scale.shape().remove(t_scale.shape().axis(-1)));
         return .{ .block = block, .scale = block_scale };
     }
 
@@ -4152,7 +4153,7 @@ test "Tensor.Quantize" {
     try zml.testing.expectEqualShapes(Shape.init(.{128}, .f8e4m3fn), result.block.shape());
 }
 
-test "Tesor.Learning" {
+test "Tensor.Quantization" {
     const zml = @import("zml.zig");
     const platform = zml.testing.env();
 
@@ -4183,21 +4184,21 @@ test "Tesor.Learning" {
 
     // const bs: zml.aio.BufferStore = zml.aio.BufferStore.init(std.testing.allocator);
     // const layer = try zml.aio.populateModel(Layer, allocator, bs);
-    var x_src: [2048]f32 = undefined;
+    var x_src: [65536]f32 = undefined;
     for (&x_src) |*x| {
         x.* = @floatFromInt(1);
     }
 
-    var y_src: [2048]f32 = undefined;
+    var y_src: [65536]f32 = undefined;
     for (&y_src) |*x| {
         x.* = @floatFromInt(1);
     }
 
-    const x = try zml.Buffer.fromSlice(platform, .{2048}, &x_src);
-    const y = try zml.Buffer.fromSlice(platform, .{2048}, &y_src);
+    const x = try zml.Buffer.fromSlice(platform, .{ 4, 128, 128 }, &x_src);
+    const y = try zml.Buffer.fromSlice(platform, .{ 4, 128, 128 }, &y_src);
 
     const result = try zml.testing.compileAndCall(platform, Layer._fwd, .{ x, y });
-    try zml.testing.expectEqualShapes(Shape.init(.{2048}, .f32), result.shape());
+    try zml.testing.expectEqualShapes(Shape.init(.{ 4, 128, 128 }, .f32), result.shape());
 }
 
 test "Tensor.maxPool2d" {
